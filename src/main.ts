@@ -23,6 +23,7 @@ let apples: { x: number; y: number }[] = [];
 let aliveMap: Record<string, boolean> = {};
 let scoreMap: Record<string, number> = {};
 let boostMap: Record<string, boolean> = {};
+let boostCooldownMap: Record<string, number> = {};
 let pseudoMap: Record<string, string> = {};
 let portals: {
   entry: { x: number; y: number };
@@ -95,6 +96,7 @@ function startGame(pseudo: string) {
       aliveMap = data.alive;
       scoreMap = data.scores;
       boostMap = data.boosts;
+      boostCooldownMap = data.boostCooldowns;
       pseudoMap = data.pseudos;
       portals = data.portals;
       leaderboard = data.leaderboard;
@@ -194,8 +196,30 @@ function drawLeaderboard() {
   leaderboard.forEach((entry, i) => {
     const yPos = y + headerHeight + i * lineHeight;
     const text = `${i + 1}. ${entry.pseudo} — ${entry.score}`;
-    ctx.fillText(text, x + 16, yPos + 10);
+    ctx.fillText(text, x + 100, yPos + 25);
   });
+}
+
+function drawBoostCooldown() {
+  const padding = 20;
+
+  const x = canvas.width - padding;
+  const y = padding;
+
+  if (playerId && boostCooldownMap[playerId] !== undefined) {
+    const cooldownTicks = boostCooldownMap[playerId];
+    const cooldownSeconds = (cooldownTicks / 15).toFixed(1);
+
+    ctx.fillStyle = "#000";
+    ctx.font = "20px Arial";
+    ctx.fillText(
+      cooldownTicks === 0
+        ? "Boost prêt (Espace)"
+        : `Boost dispo dans ${cooldownSeconds}s`,
+      x - 100,
+      canvas.height - padding
+    );
+  }
 }
 
 // Dessin principal
@@ -298,6 +322,8 @@ function draw() {
       const [, neck] = snake;
       lastDirection = { x: head.x - neck.x, y: head.y - neck.y };
     }
+
+    drawBoostCooldown();
 
     time++;
   }
