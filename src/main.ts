@@ -207,11 +207,13 @@ function draw() {
   const scale = 0.9 + 0.1 * Math.sin(time * 0.005 * Math.PI * 2);
 
   for (const apple of apples) {
-    ctx.fillRect(
-      offsetX + apple.x * gridSize,
-      offsetY + apple.y * gridSize,
-      gridSize,
-      gridSize
+    ctx.beginPath();
+    ctx.arc(
+      offsetX + (apple.x + 0.5) * gridSize,
+      offsetY + (apple.y + 0.5) * gridSize,
+      gridSize / 2,
+      0,
+      2 * Math.PI
     );
     ctx.fill();
   }
