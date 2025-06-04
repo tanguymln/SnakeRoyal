@@ -13,7 +13,7 @@ const cols = Math.floor(160 / gridSize);
 const rows = Math.floor(90 / gridSize);
 
 const players = new Map();
-let apples = Array.from({ length: 500 }, () => spawnApple());
+let apples = Array.from({ length: 300 }, () => spawnApple());
 
 // 1. Définition des portails (paires d'entrée/sortie)
 const portals = [
@@ -21,7 +21,7 @@ const portals = [
   { entry: { x: 30, y: 20 }, exit: { x: 70, y: 60 } },
   // Ajoutez autant de portails que vous le souhaitez
 ];
-s
+
 function spawnApple() {
   return {
     x: Math.floor(Math.random() * cols),
@@ -74,7 +74,8 @@ wss.on("connection", (ws) => {
       }
 
       if (msg.type === "boost") {
-        if (player.alive && !player.speedBoost) {
+        // Limitation : boost uniquement si taille >= 5 et pas déjà en boost
+        if (player.alive && !player.speedBoost && player.snake.length >= 5) {
           player.speedBoost = true;
           player.boostTimer = 20; // boost dure 20 ticks (~1.3s)
         }
@@ -92,29 +93,35 @@ wss.on("connection", (ws) => {
 function gameLoop() {
   const alivePlayers = Array.from(players.values()).filter((p) => p.alive);
 
-  // 2. Mise à jour du boost pour chaque joueur
+  // Mise à jour du boost et consommation de taille en boost
   for (const player of players.values()) {
     if (player.speedBoost) {
       player.boostTimer--;
+
+      // Retirer 2 segments par tick de boost si possible
+      if (player.snake.length > 2) {
+        player.snake.pop();
+        player.snake.pop();
+      }
+
       if (player.boostTimer <= 0) {
         player.speedBoost = false;
       }
     }
   }
 
-  // 3. Boucle de mise à jour des serpents
+  // Boucle de mise à jour des serpents
   for (const player of alivePlayers) {
     const speed = player.speedBoost ? 2 : 1; // double vitesse en boost
 
     for (let step = 0; step < speed; step++) {
       const { direction, snake } = player;
-      // Calculer la nouvelle tête
       let head = {
         x: (snake[0].x + direction.x + cols) % cols,
         y: (snake[0].y + direction.y + rows) % rows,
       };
 
-      // 3.1. Vérifier si la tête entre dans un portail
+      // Gestion des portails
       for (const portal of portals) {
         if (head.x === portal.entry.x && head.y === portal.entry.y) {
           head = { x: portal.exit.x, y: portal.exit.y };
@@ -126,7 +133,7 @@ function gameLoop() {
         }
       }
 
-      // 3.2. Collision avec soi-même
+      // Collision avec soi-même
       if (
         snake.some((segment) => segment.x === head.x && segment.y === head.y)
       ) {
@@ -134,23 +141,55 @@ function gameLoop() {
         break;
       }
 
-      // 3.3. Collision avec un autre serpent
+      // Collision avec un autre serpent
+      let collided = false;
       for (const other of alivePlayers) {
         if (other.id === player.id) continue;
-        if (other.snake.some((seg) => seg.x === head.x && seg.y === head.y)) {
-          player.alive = false;
-          other.score += 1;
-          other.pendingGrowth += player.snake.length;
-          break;
+
+        const idx = other.snake.findIndex(
+          (seg) => seg.x === head.x && seg.y === head.y
+        );
+
+        if (idx !== -1) {
+          if (player.speedBoost) {
+            // En boost : traverser + couper l'autre serpent
+            // Partie avant la collision reste
+            const headPart = other.snake.slice(0, idx);
+            // Partie coupée (après la collision) devient des pommes
+            const cutPart = other.snake.slice(idx);
+
+            // Remplace le serpent coupé par la partie avant
+            if (headPart.length > 0) {
+              other.snake = headPart;
+            } else {
+              // Si tout coupé, mort
+              other.alive = false;
+              other.snake = [];
+            }
+
+            // Transformer la partie coupée en pommes
+            for (const segment of cutPart) {
+              apples.push({ x: segment.x, y: segment.y });
+            }
+
+            // Le joueur boosté continue (ne meurt pas)
+            collided = false; // ne tue pas le joueur boosté
+            break;
+          } else {
+            // Pas en boost : mort classique
+            player.alive = false;
+            other.score += 1;
+            other.pendingGrowth += player.snake.length;
+            collided = true;
+            break;
+          }
         }
       }
 
-      if (!player.alive) break;
+      if (collided || !player.alive) break;
 
-      // 3.4. Ajouter la nouvelle tête
       snake.unshift(head);
 
-      // 3.5. Manger une pomme
       const appleIndex = apples.findIndex(
         (a) => a.x === head.x && a.y === head.y
       );
@@ -160,29 +199,28 @@ function gameLoop() {
         player.pendingGrowth += 3;
       }
 
-      // 3.6. Gestion de la croissance
       if (player.pendingGrowth > 0) {
         player.pendingGrowth--;
       } else {
-        snake.pop();
+        // Ne pas retirer le dernier segment si en boost (déjà géré)
+        if (!player.speedBoost) {
+          snake.pop();
+        }
       }
     }
   }
 
-  // 4. Faire disparaître physiquement les serpents morts (snake = [])
   for (const player of players.values()) {
     if (!player.alive) {
       player.snake = [];
     }
   }
 
-  // 5. Calcul du leaderboard (top 10 par score)
   const leaderboard = Array.from(players.values())
     .sort((a, b) => b.score - a.score)
     .slice(0, 10)
     .map((p) => ({ pseudo: p.pseudo, score: p.score }));
 
-  // 6. Préparer le payload à envoyer
   const payload = JSON.stringify({
     type: "state",
     snakes: Object.fromEntries(
@@ -201,7 +239,7 @@ function gameLoop() {
     pseudos: Object.fromEntries(
       Array.from(players.entries()).map(([id, p]) => [id, p.pseudo])
     ),
-    portals, // <-- envoi des portails au client
+    portals,
     leaderboard,
   });
 

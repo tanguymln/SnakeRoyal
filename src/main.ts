@@ -15,6 +15,9 @@ let offsetY = 0;
 let playerId = "";
 let playerPseudo = "";
 
+// Animation
+let time = 0;
+
 let snakes: Record<string, { x: number; y: number }[]> = {};
 let apples: { x: number; y: number }[] = [];
 let aliveMap: Record<string, boolean> = {};
@@ -63,7 +66,7 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
 
-// 1. Écran de lancement
+// Écran de lancement
 startButton.onclick = () => {
   const pseudo = pseudoInput.value.trim() || "Joueur";
   playerPseudo = pseudo;
@@ -93,8 +96,8 @@ function startGame(pseudo: string) {
       scoreMap = data.scores;
       boostMap = data.boosts;
       pseudoMap = data.pseudos;
-      portals = data.portals; // <-- réception des portails
-      leaderboard = data.leaderboard; // <-- réception du leaderboard
+      portals = data.portals;
+      leaderboard = data.leaderboard;
 
       gameOver = !aliveMap[playerId];
     }
@@ -164,7 +167,7 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// 2. Dessin du leaderboard amélioré
+// Leaderboard
 function drawLeaderboard() {
   if (leaderboard.length === 0) return;
 
@@ -175,49 +178,49 @@ function drawLeaderboard() {
 
   const totalHeight = headerHeight + leaderboard.length * lineHeight;
 
-  // Centrage horizontal et position top droite avec marge
   const x = canvas.width - boxWidth - padding;
   const y = padding;
 
-  // Dessine la boîte avec fond semi-transparent et coins arrondis
   ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
   ctx.beginPath();
   ctx.roundRect(x, y, boxWidth, totalHeight + 20, 10);
   ctx.fill();
 
-  // Titre
   ctx.fillStyle = "#000";
   ctx.font = "bold 16px Arial";
-  ctx.fillText("🏆 Leaderboard", x + 16, y + 22);
+  ctx.fillText("🏆 Leaderboard", x + 100, y + 30);
 
-  // Entrées du leaderboard
   ctx.font = "14px Arial";
   leaderboard.forEach((entry, i) => {
     const yPos = y + headerHeight + i * lineHeight;
-    const text = `${i + 1}. ${entry.pseudo} — ${entry.score}`;
-    ctx.fillText(text, x + 16, yPos + 10);
+    const text = `${i + 1}. ${entry.pseudo.substring(0, 25)} — ${entry.score}`;
+    ctx.fillText(text, x + 100, yPos + 25);
   });
 }
 
-// 3. Fonction de dessin principal
+// Dessin principal
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // 3.1. Dessin des pommes
+  // Pommes
   ctx.fillStyle = "red";
+  const scale = 0.9 + 0.1 * Math.sin(time * 0.005 * Math.PI * 2);
+
   for (const apple of apples) {
-    ctx.fillRect(
-      offsetX + apple.x * gridSize,
-      offsetY + apple.y * gridSize,
-      gridSize,
-      gridSize
+    ctx.beginPath();
+    ctx.arc(
+      offsetX + (apple.x + 0.5) * gridSize,
+      offsetY + (apple.y + 0.5) * gridSize,
+      (gridSize / 2) * scale,
+      0,
+      2 * Math.PI
     );
+    ctx.fill();
   }
 
-  // 3.2. Dessin des portails (bleu)
+  // Portails
   ctx.fillStyle = "blue";
   for (const portal of portals) {
-    // Portail d'entrée
     ctx.beginPath();
     ctx.arc(
       offsetX + (portal.entry.x + 0.5) * gridSize,
@@ -228,7 +231,6 @@ function draw() {
     );
     ctx.fill();
 
-    // Portail de sortie
     ctx.beginPath();
     ctx.arc(
       offsetX + (portal.exit.x + 0.5) * gridSize,
@@ -240,39 +242,47 @@ function draw() {
     ctx.fill();
   }
 
-  // 3.3. Dessin des serpents + pseudos + aura de boost
+  // Serpents
   for (const [id, snake] of Object.entries(snakes)) {
     if (!aliveMap[id]) continue;
 
     const color = getColor(id);
 
-    // Aura de boost (semi-transparente)
     if (boostMap[id]) {
-      const head = snake[0];
-      ctx.beginPath();
-      ctx.arc(
-        offsetX + (head.x + 0.5) * gridSize,
-        offsetY + (head.y + 0.5) * gridSize,
-        gridSize * 1.2,
-        0,
-        2 * Math.PI
-      );
-      ctx.fillStyle = color + "55";
-      ctx.fill();
+      const maxBlur = 15; // flou max sur la tête
+
+      for (let i = 0; i < snake.length; i++) {
+        const segment = snake[i];
+        const x = offsetX + segment.x * gridSize;
+        const y = offsetY + segment.y * gridSize;
+
+        // Flou qui diminue vers la queue
+        const blur = maxBlur * (1 - i / snake.length);
+
+        ctx.shadowColor = color;
+        ctx.shadowBlur = blur;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, gridSize, gridSize);
+      }
+
+      // Reset shadowBlur après dessin du serpent
+      ctx.shadowBlur = 0;
+    } else {
+      // Pas de boost, dessin sans aura
+      for (const segment of snake) {
+        const x = offsetX + segment.x * gridSize;
+        const y = offsetY + segment.y * gridSize;
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, gridSize, gridSize);
+      }
     }
 
-    // Corps du serpent
-    ctx.fillStyle = color;
-    for (const segment of snake) {
-      ctx.fillRect(
-        offsetX + segment.x * gridSize,
-        offsetY + segment.y * gridSize,
-        gridSize,
-        gridSize
-      );
-    }
-
-    // Affichage du pseudo au-dessus de la tête (en noir)
+    // Pseudo
     const head = snake[0];
     const pseudo = pseudoMap[id] || "???";
     ctx.font = "bold 13px Arial";
@@ -288,12 +298,12 @@ function draw() {
       const [, neck] = snake;
       lastDirection = { x: head.x - neck.x, y: head.y - neck.y };
     }
+
+    time++;
   }
 
-  // 3.4. Dessiner le leaderboard
   drawLeaderboard();
 
-  // 3.5. Écran Game Over
   if (gameOver) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -316,7 +326,7 @@ function draw() {
   }
 }
 
-// 4. Boucle d’animation
+// Boucle
 function gameLoop() {
   draw();
   requestAnimationFrame(gameLoop);
