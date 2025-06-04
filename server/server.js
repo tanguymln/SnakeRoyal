@@ -13,7 +13,7 @@ const cols = Math.floor(160 / gridSize);
 const rows = Math.floor(90 / gridSize);
 
 const players = new Map();
-let apples = Array.from({ length: 500 }, () => spawnApple());
+let apples = Array.from({ length: 300 }, () => spawnApple());
 
 // 1. Définition des portails (paires d'entrée/sortie)
 const portals = [
@@ -21,7 +21,7 @@ const portals = [
   { entry: { x: 30, y: 20 }, exit: { x: 70, y: 60 } },
   // Ajoutez autant de portails que vous le souhaitez
 ];
-s
+s;
 function spawnApple() {
   return {
     x: Math.floor(Math.random() * cols),

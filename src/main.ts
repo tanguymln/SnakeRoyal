@@ -35,6 +35,21 @@ let ws: WebSocket | null = null;
 
 const colorMap: Record<string, string> = {};
 
+// Pour animation pulsation pommes & portails
+let frameCount = 0;
+
+// Particules quand on mange une pomme
+type Particle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  alpha: number;
+  size: number;
+  color: string;
+};
+const particles: Particle[] = [];
+
 function getColor(id: string): string {
   if (!colorMap[id]) {
     colorMap[id] = id === playerId ? "#00ff00" : getRandomColor();
@@ -63,7 +78,7 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
 
-// 1. Écran de lancement
+// Ecran de lancement
 startButton.onclick = () => {
   const pseudo = pseudoInput.value.trim() || "Joueur";
   playerPseudo = pseudo;
@@ -87,14 +102,31 @@ function startGame(pseudo: string) {
     }
 
     if (data.type === "state") {
+      // Avant update serpents, on détecte les pommes mangées
+      // pour déclencher les particules
+      if (apples.length > 0 && data.apples.length < apples.length) {
+        // On a perdu une pomme, crée des particules à cet endroit
+        // Chercher la pomme manquante
+        const missingApple = apples.find(
+          (a) =>
+            !data.apples.some(
+              (newA: { x: number; y: number }) =>
+                newA.x === a.x && newA.y === a.y
+            )
+        );
+        if (missingApple) {
+          createParticles(missingApple.x, missingApple.y);
+        }
+      }
+
       snakes = data.snakes;
       apples = data.apples;
       aliveMap = data.alive;
       scoreMap = data.scores;
       boostMap = data.boosts;
       pseudoMap = data.pseudos;
-      portals = data.portals; // <-- réception des portails
-      leaderboard = data.leaderboard; // <-- réception du leaderboard
+      portals = data.portals;
+      leaderboard = data.leaderboard;
 
       gameOver = !aliveMap[playerId];
     }
@@ -164,7 +196,45 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// 2. Dessin du leaderboard amélioré
+// Fonction création particules sur pomme mangée
+function createParticles(gridX: number, gridY: number) {
+  const baseX = offsetX + (gridX + 0.5) * gridSize;
+  const baseY = offsetY + (gridY + 0.5) * gridSize;
+  for (let i = 0; i < 15; i++) {
+    particles.push({
+      x: baseX,
+      y: baseY,
+      vx: (Math.random() - 0.5) * 3,
+      vy: (Math.random() - 0.5) * 3,
+      alpha: 1,
+      size: Math.random() * 3 + 2,
+      color: "rgba(255, 0, 0, 1)",
+    });
+  }
+}
+
+// Nettoyer les particules périmées et les dessiner
+function drawParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.alpha -= 0.03;
+    p.size *= 0.95;
+
+    if (p.alpha <= 0 || p.size <= 0.1) {
+      particles.splice(i, 1);
+      continue;
+    }
+
+    ctx.fillStyle = `rgba(255,0,0,${p.alpha})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+}
+
+// Dessin leaderboard
 function drawLeaderboard() {
   if (leaderboard.length === 0) return;
 
@@ -175,150 +245,171 @@ function drawLeaderboard() {
 
   const totalHeight = headerHeight + leaderboard.length * lineHeight;
 
-  // Centrage horizontal et position top droite avec marge
   const x = canvas.width - boxWidth - padding;
   const y = padding;
 
-  // Dessine la boîte avec fond semi-transparent et coins arrondis
   ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
   ctx.beginPath();
   ctx.roundRect(x, y, boxWidth, totalHeight + 20, 10);
   ctx.fill();
 
-  // Titre
   ctx.fillStyle = "#000";
   ctx.font = "bold 16px Arial";
-  ctx.fillText("🏆 Leaderboard", x + 16, y + 22);
+  ctx.fillText("🏆 Leaderboard", x + 100, y + 30);
 
-  // Entrées du leaderboard
   ctx.font = "14px Arial";
   leaderboard.forEach((entry, i) => {
     const yPos = y + headerHeight + i * lineHeight;
-    const text = `${i + 1}. ${entry.pseudo} — ${entry.score}`;
-    ctx.fillText(text, x + 16, yPos + 10);
+    const text = `${i + 1}. ${entry.pseudo.substring(0, 25)} — ${entry.score}`;
+    ctx.fillText(text, x + 100, yPos + 20);
   });
 }
 
-// 3. Fonction de dessin principal
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // 3.1. Dessin des pommes
+  // 1. Pommes avec animation pulsation (scale sinusoïdal)
+  const pulse = 1 + 0.15 * Math.sin(frameCount * 0.15);
   ctx.fillStyle = "red";
   for (const apple of apples) {
-    ctx.fillRect(
-      offsetX + apple.x * gridSize,
-      offsetY + apple.y * gridSize,
-      gridSize,
-      gridSize
+    ctx.save();
+    ctx.translate(
+      offsetX + (apple.x + 0.5) * gridSize,
+      offsetY + (apple.y + 0.5) * gridSize
     );
+    ctx.scale(pulse, pulse);
+    ctx.beginPath();
+    ctx.arc(0, 0, gridSize / 2, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.restore();
   }
 
-  // 3.2. Dessin des portails (bleu)
-  ctx.fillStyle = "blue";
+  // 2. Portails avec pulsation bleu plus lente et légère rotation
+  const portalPulse = 1 + 0.1 * Math.sin(frameCount * 0.07);
   for (const portal of portals) {
-    // Portail d'entrée
-    ctx.beginPath();
-    ctx.arc(
+    // Entrée
+    ctx.save();
+    ctx.translate(
       offsetX + (portal.entry.x + 0.5) * gridSize,
-      offsetY + (portal.entry.y + 0.5) * gridSize,
-      gridSize / 2,
-      0,
-      2 * Math.PI
+      offsetY + (portal.entry.y + 0.5) * gridSize
     );
-    ctx.fill();
-
-    // Portail de sortie
+    ctx.rotate(frameCount * 0.02);
+    ctx.scale(portalPulse, portalPulse);
+    ctx.fillStyle = "blue";
     ctx.beginPath();
-    ctx.arc(
-      offsetX + (portal.exit.x + 0.5) * gridSize,
-      offsetY + (portal.exit.y + 0.5) * gridSize,
-      gridSize / 2,
-      0,
-      2 * Math.PI
-    );
+    ctx.arc(0, 0, gridSize / 2, 0, 2 * Math.PI);
     ctx.fill();
-  }
+    ctx.restore();
 
-  // 3.3. Dessin des serpents + pseudos + aura de boost
-  for (const [id, snake] of Object.entries(snakes)) {
-    if (!aliveMap[id]) continue;
-
-    const color = getColor(id);
-
-    // Aura de boost (semi-transparente)
-    if (boostMap[id]) {
-      const head = snake[0];
-      ctx.beginPath();
-      ctx.arc(
-        offsetX + (head.x + 0.5) * gridSize,
-        offsetY + (head.y + 0.5) * gridSize,
-        gridSize * 1.2,
-        0,
-        2 * Math.PI
-      );
-      ctx.fillStyle = color + "55";
-      ctx.fill();
-    }
-
-    // Corps du serpent
-    ctx.fillStyle = color;
-    for (const segment of snake) {
-      ctx.fillRect(
-        offsetX + segment.x * gridSize,
-        offsetY + segment.y * gridSize,
-        gridSize,
-        gridSize
-      );
-    }
-
-    // Affichage du pseudo au-dessus de la tête (en noir)
-    const head = snake[0];
-    const pseudo = pseudoMap[id] || "???";
-    ctx.font = "bold 13px Arial";
-    ctx.fillStyle = "#000";
-    ctx.textAlign = "center";
-    ctx.fillText(
-      pseudo,
-      offsetX + (head.x + 0.5) * gridSize,
-      offsetY + head.y * gridSize - 6
+    // Sortie
+    ctx.save();
+    ctx.translate(
+      offsetX + (portal.exit.x + 0.5) * gridSize,
+      offsetY + (portal.exit.y + 0.5) * gridSize
     );
+    ctx.rotate(-frameCount * 0.02);
+    ctx.scale(portalPulse, portalPulse);
+    ctx.fillStyle = "blue";
+    ctx.beginPath();
+    ctx.arc(0, 0, gridSize / 2, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.restore();
+  }
 
-    if (id === playerId && snake.length >= 2) {
-      const [, neck] = snake;
-      lastDirection = { x: head.x - neck.x, y: head.y - neck.y };
+  // 3. Serpents avec boost animation aura + tête légèrement animée
+  for (const id in snakes) {
+    const snake = snakes[id];
+    const isBoosted = boostMap[id];
+    const baseColor = getColor(id);
+
+    for (let i = 0; i < snake.length; i++) {
+      const part = snake[i];
+      const x = offsetX + part.x * gridSize;
+      const y = offsetY + part.y * gridSize;
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      if (id === playerId) {
+        // Si boosté, dessiner une aura pulsante
+        if (isBoosted) {
+          const auraAlpha = 0.5 + 0.5 * Math.sin(frameCount * 0.25);
+          ctx.fillStyle = `rgba(0,255,0,${auraAlpha})`;
+          ctx.beginPath();
+          ctx.arc(gridSize / 2, gridSize / 2, gridSize * 0.7, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+
+        // Dessin serpent (différencier tête et corps)
+        if (i === 0) {
+          // Tête légèrement oscillante
+          const headOffset = 3 * Math.sin(frameCount * 0.5);
+          ctx.fillStyle = baseColor;
+          ctx.beginPath();
+          ctx.ellipse(
+            gridSize / 2 + headOffset,
+            gridSize / 2,
+            gridSize / 2,
+            gridSize / 1.6,
+            0,
+            0,
+            2 * Math.PI
+          );
+          ctx.fill();
+
+          ctx.fillStyle = "white";
+          ctx.beginPath();
+          ctx.arc(
+            gridSize / 2 + headOffset + 6,
+            gridSize / 2 - 8,
+            5,
+            0,
+            2 * Math.PI
+          );
+          ctx.fill();
+          ctx.fillStyle = "black";
+          ctx.beginPath();
+          ctx.arc(
+            gridSize / 2 + headOffset + 6,
+            gridSize / 2 - 8,
+            2,
+            0,
+            2 * Math.PI
+          );
+          ctx.fill();
+        } else {
+          ctx.fillStyle = baseColor;
+          ctx.fillRect(0, 0, gridSize, gridSize);
+        }
+      } else {
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(0, 0, gridSize, gridSize);
+      }
+
+      ctx.restore();
     }
   }
 
-  // 3.4. Dessiner le leaderboard
+  drawParticles();
   drawLeaderboard();
 
-  // 3.5. Écran Game Over
   if (gameOver) {
-    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "48px Arial";
+    ctx.fillStyle = "white";
+    ctx.font = "bold 64px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2 - 30);
-    ctx.font = "32px Arial";
+    ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
+    ctx.font = "28px Arial";
     ctx.fillText(
-      `Score: ${scoreMap[playerId] || 0}`,
-      canvas.width / 2,
-      canvas.height / 2 + 10
-    );
-    ctx.font = "24px Arial";
-    ctx.fillText(
-      "Appuie sur Entrée pour recommencer",
+      "Appuyez sur Entrée pour recommencer",
       canvas.width / 2,
       canvas.height / 2 + 50
     );
   }
+
+  frameCount++;
+  requestAnimationFrame(draw);
 }
 
-// 4. Boucle d’animation
-function gameLoop() {
-  draw();
-  requestAnimationFrame(gameLoop);
-}
-gameLoop();
+draw();
