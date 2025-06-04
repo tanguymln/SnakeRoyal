@@ -1,0 +1,24 @@
+services:
+  backend:
+    container_name: snake-backend
+    image: ghcr.io/tanguymln/snake-backend:latest
+    ports:
+      - "3001:3001"
+    networks:
+      - snake-net
+      - caddy_net
+
+  frontend:
+    container_name: snake
+    image: ghcr.io/tanguymln/snake-frontend:latest
+    ports:
+      - "5001:5001"
+    networks:
+      - snake-net
+      - caddy_net
+
+networks:
+  snake-net:
+    driver: bridge
+  caddy_net:
+    external: true

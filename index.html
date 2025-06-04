@@ -16,7 +16,60 @@
     </style>
   </head>
   <body>
-    <canvas id="game"></canvas>
-    <script type="module" src="./src/main.ts"></script>
+    <body>
+      <div
+        id="startScreen"
+        style="
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background: #222;
+          color: #fff;
+          font-family: Arial, sans-serif;
+        "
+      >
+        <h1>Bienvenue au Snake Multijoueur</h1>
+        <p>Règles rapides :</p>
+        <ul style="text-align: left; max-width: 400px">
+          <li>Flèches pour déplacer le serpent</li>
+          <li>Barre d'espace pour un boost de vitesse temporaire</li>
+          <li>Mangez des pommes rouges pour grandir</li>
+          <li>Évitez de vous mordre ou de toucher un autre serpent</li>
+          <li>Quand vous mourrez, appuyez sur Entrée pour recommencer</li>
+        </ul>
+        <input
+          id="pseudoInput"
+          type="text"
+          placeholder="Entrez votre pseudo"
+          style="
+            padding: 8px;
+            font-size: 16px;
+            margin: 10px 0;
+            width: 200px;
+            border-radius: 8px;
+          "
+          maxlength="15"
+        />
+        <button
+          id="startButton"
+          style="padding: 10px 20px; font-size: 16px; cursor: pointer"
+        >
+          Jouer
+        </button>
+      </div>
+
+      <canvas
+        id="game"
+        style="display: none; width: 100vw; height: 100vh"
+      ></canvas>
+
+      <script src="./dist/main.js"></script>
+    </body>
   </body>
 </html>

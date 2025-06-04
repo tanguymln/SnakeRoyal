@@ -4,7 +4,9 @@ import { randomUUID } from "crypto";
 
 const port = 3001;
 const server = createServer();
-const wss = new WebSocketServer({ host: "10.71.133.133", server });
+const wss = new WebSocketServer({
+  server,
+});
 
 const gridSize = 1.3;
 const cols = Math.floor(160 / gridSize);
@@ -13,6 +15,13 @@ const rows = Math.floor(90 / gridSize);
 const players = new Map();
 let apples = Array.from({ length: 500 }, () => spawnApple());
 
+// 1. Définition des portails (paires d'entrée/sortie)
+const portals = [
+  { entry: { x: 10, y: 10 }, exit: { x: 50, y: 50 } },
+  { entry: { x: 30, y: 20 }, exit: { x: 70, y: 60 } },
+  // Ajoutez autant de portails que vous le souhaitez
+];
+s
 function spawnApple() {
   return {
     x: Math.floor(Math.random() * cols),
@@ -20,12 +29,13 @@ function spawnApple() {
   };
 }
 
-function spawnPlayer(id, ws) {
+function spawnPlayer(id, ws, pseudo) {
   const x = Math.floor(Math.random() * cols);
   const y = Math.floor(Math.random() * rows);
   players.set(id, {
     id,
     ws,
+    pseudo: pseudo || `Player${id.slice(0, 4)}`,
     direction: { x: 1, y: 0 },
     snake: [{ x, y }],
     alive: true,
@@ -37,13 +47,21 @@ function spawnPlayer(id, ws) {
 }
 
 wss.on("connection", (ws) => {
-  const id = randomUUID();
-  spawnPlayer(id, ws);
-  ws.send(JSON.stringify({ type: "init", id }));
+  let id = randomUUID();
+  let playerInitialized = false;
 
   ws.on("message", (data) => {
     try {
       const msg = JSON.parse(data.toString());
+
+      // Premier message : initialisation avec le pseudo
+      if (!playerInitialized && msg.type === "init") {
+        spawnPlayer(id, ws, msg.pseudo);
+        ws.send(JSON.stringify({ type: "init_ack", id, pseudo: msg.pseudo }));
+        playerInitialized = true;
+        return;
+      }
+
       const player = players.get(id);
       if (!player) return;
 
@@ -52,14 +70,13 @@ wss.on("connection", (ws) => {
       }
 
       if (msg.type === "restart") {
-        spawnPlayer(id, ws);
+        spawnPlayer(id, ws, player.pseudo);
       }
 
       if (msg.type === "boost") {
-        // Active le boost seulement si le joueur est vivant et pas déjà boosté
         if (player.alive && !player.speedBoost) {
           player.speedBoost = true;
-          player.boostTimer = 20; // dure environ 20 ticks (~1.3 sec)
+          player.boostTimer = 20; // boost dure 20 ticks (~1.3s)
         }
       }
     } catch (e) {
@@ -75,8 +92,8 @@ wss.on("connection", (ws) => {
 function gameLoop() {
   const alivePlayers = Array.from(players.values()).filter((p) => p.alive);
 
+  // 2. Mise à jour du boost pour chaque joueur
   for (const player of players.values()) {
-    // Gestion boost speed
     if (player.speedBoost) {
       player.boostTimer--;
       if (player.boostTimer <= 0) {
@@ -85,17 +102,31 @@ function gameLoop() {
     }
   }
 
+  // 3. Boucle de mise à jour des serpents
   for (const player of alivePlayers) {
-    const speed = player.speedBoost ? 2 : 1; // x2 vitesse boost
+    const speed = player.speedBoost ? 2 : 1; // double vitesse en boost
 
     for (let step = 0; step < speed; step++) {
       const { direction, snake } = player;
-      const head = {
+      // Calculer la nouvelle tête
+      let head = {
         x: (snake[0].x + direction.x + cols) % cols,
         y: (snake[0].y + direction.y + rows) % rows,
       };
 
-      // Collision avec soi-même
+      // 3.1. Vérifier si la tête entre dans un portail
+      for (const portal of portals) {
+        if (head.x === portal.entry.x && head.y === portal.entry.y) {
+          head = { x: portal.exit.x, y: portal.exit.y };
+          break;
+        }
+        if (head.x === portal.exit.x && head.y === portal.exit.y) {
+          head = { x: portal.entry.x, y: portal.entry.y };
+          break;
+        }
+      }
+
+      // 3.2. Collision avec soi-même
       if (
         snake.some((segment) => segment.x === head.x && segment.y === head.y)
       ) {
@@ -103,7 +134,7 @@ function gameLoop() {
         break;
       }
 
-      // Collision avec un autre joueur
+      // 3.3. Collision avec un autre serpent
       for (const other of alivePlayers) {
         if (other.id === player.id) continue;
         if (other.snake.some((seg) => seg.x === head.x && seg.y === head.y)) {
@@ -116,9 +147,10 @@ function gameLoop() {
 
       if (!player.alive) break;
 
+      // 3.4. Ajouter la nouvelle tête
       snake.unshift(head);
 
-      // Collision avec pomme
+      // 3.5. Manger une pomme
       const appleIndex = apples.findIndex(
         (a) => a.x === head.x && a.y === head.y
       );
@@ -128,6 +160,7 @@ function gameLoop() {
         player.pendingGrowth += 3;
       }
 
+      // 3.6. Gestion de la croissance
       if (player.pendingGrowth > 0) {
         player.pendingGrowth--;
       } else {
@@ -136,13 +169,20 @@ function gameLoop() {
     }
   }
 
-  // Supprime les serpents morts (pour ne plus afficher)
+  // 4. Faire disparaître physiquement les serpents morts (snake = [])
   for (const player of players.values()) {
     if (!player.alive) {
       player.snake = [];
     }
   }
 
+  // 5. Calcul du leaderboard (top 10 par score)
+  const leaderboard = Array.from(players.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .map((p) => ({ pseudo: p.pseudo, score: p.score }));
+
+  // 6. Préparer le payload à envoyer
   const payload = JSON.stringify({
     type: "state",
     snakes: Object.fromEntries(
@@ -155,6 +195,14 @@ function gameLoop() {
     scores: Object.fromEntries(
       Array.from(players.entries()).map(([id, p]) => [id, p.score])
     ),
+    boosts: Object.fromEntries(
+      Array.from(players.entries()).map(([id, p]) => [id, p.speedBoost])
+    ),
+    pseudos: Object.fromEntries(
+      Array.from(players.entries()).map(([id, p]) => [id, p.pseudo])
+    ),
+    portals, // <-- envoi des portails au client
+    leaderboard,
   });
 
   for (const player of players.values()) {

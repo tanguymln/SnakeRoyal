@@ -1,6 +1,10 @@
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 
+const startScreen = document.getElementById("startScreen") as HTMLDivElement;
+const startButton = document.getElementById("startButton") as HTMLButtonElement;
+const pseudoInput = document.getElementById("pseudoInput") as HTMLInputElement;
+
 const worldCols = 160 / 1.3;
 const worldRows = 90 / 1.3;
 
@@ -9,14 +13,25 @@ let offsetX = 0;
 let offsetY = 0;
 
 let playerId = "";
+let playerPseudo = "";
+
 let snakes: Record<string, { x: number; y: number }[]> = {};
 let apples: { x: number; y: number }[] = [];
 let aliveMap: Record<string, boolean> = {};
 let scoreMap: Record<string, number> = {};
+let boostMap: Record<string, boolean> = {};
+let pseudoMap: Record<string, string> = {};
+let portals: {
+  entry: { x: number; y: number };
+  exit: { x: number; y: number };
+}[] = [];
+let leaderboard: { pseudo: string; score: number }[] = [];
 
 let direction = { x: 1, y: 0 };
 let lastDirection = { x: 1, y: 0 };
 let gameOver = false;
+
+let ws: WebSocket | null = null;
 
 const colorMap: Record<string, string> = {};
 
@@ -39,7 +54,6 @@ function getRandomColor(): string {
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-
   const cellW = canvas.width / worldCols;
   const cellH = canvas.height / worldRows;
   gridSize = Math.floor(Math.min(cellW, cellH));
@@ -49,25 +63,51 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
 
-const ws = new WebSocket("ws://10.71.133.133:3001");
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-
-  if (data.type === "init") {
-    playerId = data.id;
-  }
-
-  if (data.type === "state") {
-    snakes = data.snakes;
-    apples = data.apples;
-    aliveMap = data.alive;
-    scoreMap = data.scores;
-    gameOver = !aliveMap[playerId];
-  }
+// 1. Écran de lancement
+startButton.onclick = () => {
+  const pseudo = pseudoInput.value.trim() || "Joueur";
+  playerPseudo = pseudo;
+  startGame(pseudo);
+  startScreen.style.display = "none";
+  canvas.style.display = "block";
 };
 
+function startGame(pseudo: string) {
+  ws = new WebSocket("wss://ws.snake.createdbytanguy.fr");
+  ws.onopen = () => {
+    ws!.send(JSON.stringify({ type: "init", pseudo }));
+  };
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+
+    if (data.type === "init_ack") {
+      playerId = data.id;
+      playerPseudo = data.pseudo;
+    }
+
+    if (data.type === "state") {
+      snakes = data.snakes;
+      apples = data.apples;
+      aliveMap = data.alive;
+      scoreMap = data.scores;
+      boostMap = data.boosts;
+      pseudoMap = data.pseudos;
+      portals = data.portals; // <-- réception des portails
+      leaderboard = data.leaderboard; // <-- réception du leaderboard
+
+      gameOver = !aliveMap[playerId];
+    }
+  };
+
+  ws.onclose = () => {
+    gameOver = true;
+  };
+}
+
 document.addEventListener("keydown", (e) => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
   if (gameOver && e.key === "Enter") {
     ws.send(JSON.stringify({ type: "restart" }));
     gameOver = false;
@@ -124,9 +164,40 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// 2. Dessin du leaderboard amélioré
+function drawLeaderboard() {
+  if (leaderboard.length === 0) return;
+
+  const padding = 10;
+  const lineHeight = 22;
+  const headerHeight = 26;
+  const totalHeight = headerHeight + leaderboard.length * lineHeight;
+  const boxWidth = 200;
+  const x = padding;
+  const y = padding;
+
+  // Fond avec coins arrondis
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.beginPath();
+  ctx.roundRect(x, y, boxWidth, totalHeight + 10, 10);
+  ctx.fill();
+
+  ctx.fillStyle = "#000";
+  ctx.font = "bold 16px Arial";
+  ctx.fillText("🏆 Leaderboard", x + 12, y + 20);
+
+  ctx.font = "14px Arial";
+  leaderboard.forEach((entry, i) => {
+    const yPos = y + headerHeight + i * lineHeight;
+    ctx.fillText(`${i + 1}. ${entry.pseudo} — ${entry.score}`, x + 12, yPos);
+  });
+}
+
+// 3. Fonction de dessin principal
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // 3.1. Dessin des pommes
   ctx.fillStyle = "red";
   for (const apple of apples) {
     ctx.fillRect(
@@ -137,10 +208,55 @@ function draw() {
     );
   }
 
-  for (const [id, snake] of Object.entries(snakes)) {
-    if (!aliveMap[id]) continue; // ne dessine pas les serpents morts
+  // 3.2. Dessin des portails (bleu)
+  ctx.fillStyle = "blue";
+  for (const portal of portals) {
+    // Portail d'entrée
+    ctx.beginPath();
+    ctx.arc(
+      offsetX + (portal.entry.x + 0.5) * gridSize,
+      offsetY + (portal.entry.y + 0.5) * gridSize,
+      gridSize / 2,
+      0,
+      2 * Math.PI
+    );
+    ctx.fill();
 
-    ctx.fillStyle = getColor(id);
+    // Portail de sortie
+    ctx.beginPath();
+    ctx.arc(
+      offsetX + (portal.exit.x + 0.5) * gridSize,
+      offsetY + (portal.exit.y + 0.5) * gridSize,
+      gridSize / 2,
+      0,
+      2 * Math.PI
+    );
+    ctx.fill();
+  }
+
+  // 3.3. Dessin des serpents + pseudos + aura de boost
+  for (const [id, snake] of Object.entries(snakes)) {
+    if (!aliveMap[id]) continue;
+
+    const color = getColor(id);
+
+    // Aura de boost (semi-transparente)
+    if (boostMap[id]) {
+      const head = snake[0];
+      ctx.beginPath();
+      ctx.arc(
+        offsetX + (head.x + 0.5) * gridSize,
+        offsetY + (head.y + 0.5) * gridSize,
+        gridSize * 1.2,
+        0,
+        2 * Math.PI
+      );
+      ctx.fillStyle = color + "55";
+      ctx.fill();
+    }
+
+    // Corps du serpent
+    ctx.fillStyle = color;
     for (const segment of snake) {
       ctx.fillRect(
         offsetX + segment.x * gridSize,
@@ -150,12 +266,28 @@ function draw() {
       );
     }
 
+    // Affichage du pseudo au-dessus de la tête (en noir)
+    const head = snake[0];
+    const pseudo = pseudoMap[id] || "???";
+    ctx.font = "bold 13px Arial";
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      pseudo,
+      offsetX + (head.x + 0.5) * gridSize,
+      offsetY + head.y * gridSize - 6
+    );
+
     if (id === playerId && snake.length >= 2) {
-      const [head, neck] = snake;
+      const [, neck] = snake;
       lastDirection = { x: head.x - neck.x, y: head.y - neck.y };
     }
   }
 
+  // 3.4. Dessiner le leaderboard
+  drawLeaderboard();
+
+  // 3.5. Écran Game Over
   if (gameOver) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -178,9 +310,9 @@ function draw() {
   }
 }
 
+// 4. Boucle d’animation
 function gameLoop() {
   draw();
   requestAnimationFrame(gameLoop);
 }
-
 gameLoop();
