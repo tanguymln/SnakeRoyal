@@ -168,28 +168,34 @@ document.addEventListener("keydown", (e) => {
 function drawLeaderboard() {
   if (leaderboard.length === 0) return;
 
-  const padding = 10;
-  const lineHeight = 22;
-  const headerHeight = 26;
+  const padding = 20;
+  const lineHeight = 24;
+  const headerHeight = 30;
+  const boxWidth = 240;
+
   const totalHeight = headerHeight + leaderboard.length * lineHeight;
-  const boxWidth = 200;
-  const x = padding;
+
+  // Centrage horizontal et position top droite avec marge
+  const x = canvas.width - boxWidth - padding;
   const y = padding;
 
-  // Fond avec coins arrondis
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  // Dessine la boîte avec fond semi-transparent et coins arrondis
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
   ctx.beginPath();
-  ctx.roundRect(x, y, boxWidth, totalHeight + 10, 10);
+  ctx.roundRect(x, y, boxWidth, totalHeight + 20, 10);
   ctx.fill();
 
+  // Titre
   ctx.fillStyle = "#000";
   ctx.font = "bold 16px Arial";
-  ctx.fillText("🏆 Leaderboard", x + 12, y + 20);
+  ctx.fillText("🏆 Leaderboard", x + 16, y + 22);
 
+  // Entrées du leaderboard
   ctx.font = "14px Arial";
   leaderboard.forEach((entry, i) => {
     const yPos = y + headerHeight + i * lineHeight;
-    ctx.fillText(`${i + 1}. ${entry.pseudo} — ${entry.score}`, x + 12, yPos);
+    const text = `${i + 1}. ${entry.pseudo} — ${entry.score}`;
+    ctx.fillText(text, x + 16, yPos + 10);
   });
 }
 
