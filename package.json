@@ -1,0 +1,20 @@
+{
+  "name": "snake-multi",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "server": "node server/server.js"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "ts-node": "^10.9.2",
+    "ws": "^8.18.2"
+  }
+}
