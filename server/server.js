@@ -167,10 +167,14 @@ function gameLoop() {
   // Mouvements des serpents
   for (const player of alivePlayers) {
     const speed = player.speedBoost ? 2 : 1;
+    const { direction, snake } = player;
+
+    if (!snake[0]) {
+      player.alive = false;
+      continue;
+    }
 
     for (let step = 0; step < speed; step++) {
-      const { direction, snake } = player;
-
       /** @type {Coord} head - Nouvelle tête du serpent */
       let head = {
         x: (snake[0].x + direction.x + cols) % cols,
