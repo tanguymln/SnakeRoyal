@@ -1,44 +1,93 @@
+/** Canvas HTML pour le rendu du jeu */
 const canvas = document.getElementById("game") as HTMLCanvasElement;
+
+/** Contexte 2D pour dessiner dans le canvas */
 const ctx = canvas.getContext("2d")!;
 
+/** Élément HTML pour l'écran de démarrage */
 const startScreen = document.getElementById("startScreen") as HTMLDivElement;
+
+/** Bouton pour lancer la partie */
 const startButton = document.getElementById("startButton") as HTMLButtonElement;
+
+/** Input pour le pseudo du joueur */
 const pseudoInput = document.getElementById("pseudoInput") as HTMLInputElement;
 
+/** Nombre de colonnes dans le monde, ajusté */
 const worldCols = 160 / 1.3;
+
+/** Nombre de lignes dans le monde, ajusté */
 const worldRows = 90 / 1.3;
 
+/** Taille d'une case en pixels, calculée dynamiquement */
 let gridSize = 60;
+
+/** Décalage horizontal pour centrer la grille */
 let offsetX = 0;
+
+/** Décalage vertical pour centrer la grille */
 let offsetY = 0;
 
+/** Identifiant unique du joueur */
 let playerId = "";
+
+/** Pseudo du joueur */
 let playerPseudo = "";
 
-// Animation
+/** Compteur de temps pour les animations */
 let time = 0;
 
+/** Map des serpents, clé = playerId, valeur = tableau de positions (x,y) */
 let snakes: Record<string, { x: number; y: number }[]> = {};
+
+/** Tableau des pommes présentes dans le monde */
 let apples: { x: number; y: number }[] = [];
+
+/** Map indiquant si un joueur est vivant */
 let aliveMap: Record<string, boolean> = {};
+
+/** Map des scores des joueurs */
 let scoreMap: Record<string, number> = {};
+
+/** Map indiquant si un joueur est en boost */
 let boostMap: Record<string, boolean> = {};
+
+/** Map des cooldowns de boost des joueurs */
 let boostCooldownMap: Record<string, number> = {};
+
+/** Map des pseudos des joueurs */
 let pseudoMap: Record<string, string> = {};
+
+/** Liste des portails dans le jeu */
 let portals: {
   entry: { x: number; y: number };
   exit: { x: number; y: number };
 }[] = [];
+
+/** Liste du classement des joueurs */
 let leaderboard: { pseudo: string; score: number }[] = [];
 
+/** Direction actuelle du joueur */
 let direction = { x: 1, y: 0 };
+
+/** Dernière direction utilisée */
 let lastDirection = { x: 1, y: 0 };
+
+/** Booléen indiquant si le jeu est terminé */
 let gameOver = false;
 
+/** WebSocket pour la communication avec le serveur */
 let ws: WebSocket | null = null;
 
+/** Map de couleurs attribuées aux joueurs */
 const colorMap: Record<string, string> = {};
 
+/**
+ * Retourne la couleur associée à un joueur.
+ * Si aucune couleur n'est encore attribuée, en génère une.
+ * @param {string} id Identifiant du joueur
+ * @returns {string} Couleur en hexadécimal
+ */
 function getColor(id: string): string {
   if (!colorMap[id]) {
     colorMap[id] = id === playerId ? "#00ff00" : getRandomColor();
@@ -46,6 +95,10 @@ function getColor(id: string): string {
   return colorMap[id];
 }
 
+/**
+ * Génère une couleur hexadécimale aléatoire.
+ * @returns {string} Couleur au format #RRGGBB
+ */
 function getRandomColor(): string {
   return (
     "#" +
@@ -55,7 +108,11 @@ function getRandomColor(): string {
   );
 }
 
-function resizeCanvas() {
+/**
+ * Redimensionne le canvas et calcule la taille des cases et offsets pour centrer la grille.
+ * @returns {void}
+ */
+function resizeCanvas(): void {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
   const cellW = canvas.width / worldCols;
@@ -64,10 +121,17 @@ function resizeCanvas() {
   offsetX = (canvas.width - worldCols * gridSize) / 2;
   offsetY = (canvas.height - worldRows * gridSize) / 2;
 }
+
+/** Initialise la taille du canvas au chargement */
 resizeCanvas();
+
+/** Recalcule la taille du canvas lors d'un redimensionnement de la fenêtre */
 window.addEventListener("resize", resizeCanvas);
 
-// Écran de lancement
+/**
+ * Gère le clic sur le bouton de démarrage.
+ * Récupère le pseudo et lance la partie.
+ */
 startButton.onclick = () => {
   const pseudo = pseudoInput.value.trim() || "Joueur";
   playerPseudo = pseudo;
@@ -76,8 +140,14 @@ startButton.onclick = () => {
   canvas.style.display = "block";
 };
 
-function startGame(pseudo: string) {
+/**
+ * Initialise la connexion WebSocket et configure les callbacks.
+ * Gère la réception des données et met à jour l'état du jeu.
+ * @param {string} pseudo Pseudo du joueur
+ */
+function startGame(pseudo: string): void {
   ws = new WebSocket("ws://localhost:3001");
+
   ws.onopen = () => {
     ws!.send(JSON.stringify({ type: "init", pseudo }));
   };
@@ -110,7 +180,12 @@ function startGame(pseudo: string) {
   };
 }
 
-document.addEventListener("keydown", (e) => {
+/**
+ * Gère la détection des touches pressées pour la direction ou les actions.
+ * Envoie les commandes appropriées au serveur via WebSocket.
+ * @param {KeyboardEvent} e L'événement clavier
+ */
+document.addEventListener("keydown", (e: KeyboardEvent) => {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
   if (gameOver && e.key === "Enter") {
@@ -143,6 +218,7 @@ document.addEventListener("keydown", (e) => {
         break;
     }
 
+    // Cas où serpent ne fait qu'une case (départ)
     const me = snakes[playerId];
     if (me && me.length === 1) {
       switch (e.key) {
@@ -161,6 +237,7 @@ document.addEventListener("keydown", (e) => {
       }
     }
 
+    // Si direction modifiée, envoie au serveur
     if (newDir.x !== direction.x || newDir.y !== direction.y) {
       direction = newDir;
       lastDirection = newDir;
@@ -169,8 +246,11 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// Leaderboard
-function drawLeaderboard() {
+/**
+ * Dessine le classement des joueurs dans un cadre à droite.
+ * @returns {void}
+ */
+function drawLeaderboard(): void {
   if (leaderboard.length === 0) return;
 
   const padding = 20;
@@ -200,7 +280,11 @@ function drawLeaderboard() {
   });
 }
 
-function drawBoostCooldown() {
+/**
+ * Affiche le cooldown du boost du joueur.
+ * @returns {void}
+ */
+function drawBoostCooldown(): void {
   const padding = 20;
 
   const x = canvas.width - padding;
@@ -222,13 +306,17 @@ function drawBoostCooldown() {
   }
 }
 
-// Dessin principal
-function draw() {
+/**
+ * Fonction principale de dessin appelée à chaque frame.
+ * Dessine le terrain, les pommes, portails, serpents, pseudos, cooldowns et leaderboard.
+ * Affiche aussi l'écran de fin si le joueur est mort.
+ * @returns {void}
+ */
+function draw(): void {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // Pommes
   ctx.fillStyle = "red";
-  const scale = 0.9 + 0.1 * Math.sin(time * 0.005 * Math.PI * 2);
 
   for (const apple of apples) {
     ctx.beginPath();
@@ -306,7 +394,7 @@ function draw() {
       }
     }
 
-    // Pseudo
+    // Pseudo au-dessus de la tête
     const head = snake[0];
     const pseudo = pseudoMap[id] || "???";
     ctx.font = "bold 13px Arial";
@@ -318,6 +406,7 @@ function draw() {
       offsetY + head.y * gridSize - 6
     );
 
+    // Mise à jour de la dernière direction selon la tête et le cou
     if (id === playerId && snake.length >= 2) {
       const [, neck] = snake;
       lastDirection = { x: head.x - neck.x, y: head.y - neck.y };
@@ -330,6 +419,7 @@ function draw() {
 
   drawLeaderboard();
 
+  // Affiche écran de fin si mort
   if (gameOver) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -352,9 +442,14 @@ function draw() {
   }
 }
 
-// Boucle
-function gameLoop() {
+/**
+ * Boucle principale du jeu, appelée à chaque frame par requestAnimationFrame.
+ * @returns {void}
+ */
+function gameLoop(): void {
   draw();
   requestAnimationFrame(gameLoop);
 }
+
+/** Démarrage de la boucle de jeu */
 gameLoop();
