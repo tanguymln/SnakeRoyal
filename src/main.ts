@@ -77,7 +77,7 @@ startButton.onclick = () => {
 };
 
 function startGame(pseudo: string) {
-  ws = new WebSocket("wss://ws.snake.createdbytanguy.fr");
+  ws = new WebSocket("ws://localhost:3001");
   ws.onopen = () => {
     ws!.send(JSON.stringify({ type: "init", pseudo }));
   };
